@@ -110,6 +110,9 @@
   .note .nd-row{padding:5px 0;border-top:1px solid var(--line)}
   .note .nd-row:first-child{border-top:0}
   .note .old{color:var(--muted);text-decoration:line-through}
+  .note .sub{font-size:11.5px;color:var(--body);margin-top:3px}
+  .note .src{color:var(--muted);font-weight:500}
+  .note .nbody{font-size:11px;color:var(--muted);font-style:italic;margin-top:5px;line-height:1.45}
 
   .ship{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:12px;display:flex;align-items:center;gap:16px;transition:.15s}
   .ship:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
@@ -264,7 +267,7 @@ async function addFiles(list){
   for(const f of list){
     const ext=f.name.split('.').pop().toLowerCase();
     if(ext==='msg'){ await ingestMsg(f); }
-    else if(ext==='pdf'){ f._src='dropped directly'; if(!PDFS.some(p=>p.name===f.name&&p.size===f.size)) PDFS.push(f); }
+    else if(ext==='pdf'){ f._src={file:'(dropped directly)',subject:'',dateMs:0,body:''}; if(!PDFS.some(p=>p.name===f.name&&p.size===f.size)) PDFS.push(f); }
     else if(['xlsx','xls','csv'].includes(ext)){ TALLY=f; }
   }
   renderFiles();
@@ -272,11 +275,12 @@ async function addFiles(list){
 async function ingestMsg(file){
   try{
     const ab=await file.arrayBuffer();
-    const atts=extractMsgAttachments(ab);
+    const {attachments, meta}=extractMsgAttachments(ab);
+    const src={file:file.name, subject:meta.subject, dateMs:meta.dateMs, body:meta.body};
     let npdf=0;
-    for(const a of atts){
+    for(const a of attachments){
       const ex=a.name.split('.').pop().toLowerCase();
-      const blob=new File([a.bytes], a.name); blob._src=file.name;
+      const blob=new File([a.bytes], a.name); blob._src=src;
       if(ex==='pdf'){ if(!PDFS.some(p=>p.name===a.name)){ PDFS.push(blob); npdf++; } }
       else if(['xlsx','xls','csv'].includes(ex)){ TALLY=blob; }
     }
@@ -329,7 +333,17 @@ function extractMsgAttachments(ab){
     if(data.length<2000 && /\.(png|gif|jpe?g|bmp)$/i.test(name)) continue;
     out.push({name,bytes:data});
   }
-  return out;
+  const findTop=nm=>entries.find(e=>e.type===2 && e.name===nm);
+  let subject=''; const su=findTop('__substg1.0_0037001F'); if(su) subject=utf16(getStream(su));
+  let body=''; const bo=findTop('__substg1.0_1000001F'); if(bo) body=utf16(getStream(bo));
+  let dateMs=0;
+  for(const e of entries){ if(e.type===2 && e.name==='__properties_version1.0'){
+    const p=getStream(e); const pd=new DataView(p.buffer,p.byteOffset,p.byteLength);
+    for(const hdr of [32,8]){ for(let o=hdr;o+16<=p.length;o+=16){ const ty=pd.getUint16(o,true), id=pd.getUint16(o+2,true);
+      if(ty===0x0040 && (id===0x0039||id===0x0E06)){ const lo=pd.getUint32(o+8,true),hi=pd.getUint32(o+12,true); const mms=(hi*4294967296+lo)/1e4-11644473600000; if(mms>0) dateMs=mms; } }
+      if(dateMs)break; } if(dateMs)break; } }
+  body=body.replace(/EXTERNAL E-MAIL:[\s\S]*?Password\.?/i,'').replace(/\s+/g,' ').trim();
+  return {attachments:out, meta:{subject:subject, dateMs:dateMs, body:body.slice(0,220)}};
 }
 function renderFiles(){
   const box=$('files'); box.innerHTML='';
@@ -433,12 +447,12 @@ function idTokens(n){return new Set((n.toUpperCase().match(/SA\d{6,}|JD\d{3,}/g)
 async function preparePdfs(files){
   const info={dupes:[],revisions:[]};
   const byHash=new Map();
-  for(const f of files){ const h=await sha(f); if(byHash.has(h)) info.dupes.push({name:f.name,from:f._src||'?',dupOf:byHash.get(h)._src||'?'}); else byHash.set(h,f); }
+  for(const f of files){ const h=await sha(f); if(byHash.has(h)) info.dupes.push({name:f.name,from:f._src||{},dupOf:byHash.get(h)._src||{}}); else byHash.set(h,f); }
   let uniq=[...byHash.values()];
   const revised=uniq.filter(f=>/revis/i.test(f.name)); const drop=new Set();
   for(const r of revised){ const rt=idTokens(r.name);
     for(const f of uniq){ if(f===r||/revis/i.test(f.name))continue;
-      if([...idTokens(f.name)].some(t=>rt.has(t))){ drop.add(f); info.revisions.push({keep:r.name,drop:f.name}); } } }
+      if([...idTokens(f.name)].some(t=>rt.has(t))){ drop.add(f); info.revisions.push({keep:r.name,keepSrc:r._src||{},drop:f.name,dropSrc:f._src||{}}); } } }
   return {kept:uniq.filter(f=>!drop.has(f)), info};
 }
 
@@ -526,16 +540,16 @@ function render(){
 
   const nEl=$('notes'); let nh=''; const pr=RESULTS._prep||{dupes:[],revisions:[]};
   if(pr.revisions.length){
-    const rows=pr.revisions.map(r=>`<div class="nd-row"><b>${r.keep}</b> &nbsp;was used instead of&nbsp; <span class="old">${r.drop}</span></div>`).join('');
-    nh+=`<div class="note"><div class="nt"><span class="nb ok">Revised</span> ${pr.revisions.length} revised document(s) — newest version used</div><div class="nx">The vendor sent an updated copy of these files (their name contains \u201cRevised\u201d). Each packet uses the newer version and the original was left out, so nothing is doubled up. Worth a quick check: if a \u201cRevised\u201d file was actually meant for a different shipment, open that packet to confirm it landed in the right place.</div><div class="nd">${rows}</div></div>`;
+    const rows=pr.revisions.map(r=>`<div class="nd-row"><div><b>${r.keep}</b> <span class="src">— from &ldquo;${srcLabel(r.keepSrc)}&rdquo;</span></div><div class="sub">used instead of <span class="old">${r.drop}</span> <span class="src">— from &ldquo;${srcLabel(r.dropSrc)}&rdquo;</span></div>${srcBody(r.keepSrc)}</div>`).join('');
+    nh+=`<div class="note"><div class="nt"><span class="nb ok">Revised</span> ${pr.revisions.length} revised document(s) — newest version used</div><div class="nx">The vendor sent an updated copy of these files (their name contains &ldquo;Revised&rdquo;). Each packet uses the newer version and the original was left out, so nothing is doubled up. Worth a quick check: if a &ldquo;Revised&rdquo; file was actually meant for a different shipment, open that packet to confirm it landed in the right place.</div><div class="nd">${rows}</div></div>`;
   }
   if(pr.dupes.length){
-    const rows=pr.dupes.map(d=>`<div class="nd-row"><b>${d.name}</b> &nbsp;— re-sent in&nbsp; <span class="old">\u201c${d.from}\u201d</span></div>`).join('');
-    nh+=`<div class="note"><div class="nt"><span class="nb">Dupes</span> ${pr.dupes.length} duplicate re-send(s) skipped</div><div class="nx">The exact same document arrived more than once across the emails \u2014 usually the vendor re-sending it in a later reply. The tool kept one copy of each and skipped the repeats, so no document appears twice in a packet. Each one is shown with the email it came from, in case you want to ask the vendor to stop re-sending the same files.</div><div class="nd">${rows}</div></div>`;
+    const rows=pr.dupes.map(d=>`<div class="nd-row"><div><b>${d.name}</b></div><div class="sub">re-sent in <span class="src">&ldquo;${srcLabel(d.from)}&rdquo;</span> · first arrived in <span class="src">&ldquo;${srcLabel(d.dupOf)}&rdquo;</span></div>${srcBody(d.from)}</div>`).join('');
+    nh+=`<div class="note"><div class="nt"><span class="nb">Dupes</span> ${pr.dupes.length} duplicate re-send(s) skipped</div><div class="nx">The exact same document arrived more than once across the emails — usually the vendor re-sending it in a later reply. The tool kept one copy of each and skipped the repeats, so no document appears twice in a packet. Each one shows the email and time it came from, in case you want to ask the vendor to stop re-sending the same files.</div><div class="nd">${rows}</div></div>`;
   }
   if((RESULTS._unmatched||[]).length){
     const rows=(RESULTS._unmatched||[]).map(u=>`<div class="nd-row">${u}</div>`).join('');
-    nh+=`<div class="note warn"><div class="nt"><span class="nb warn">Check</span> ${(RESULTS._unmatched||[]).length} document(s) not matched to the tally</div><div class="nx">These files didn\u2019t carry an SA# or PO# the tool could line up with the tally \u2014 often a shipment added during the day, or a file the vendor named without the SA#. Check them: if one belongs to a shipment, add that SA# to the tally and re-run, otherwise file it manually.</div><div class="nd">${rows}</div></div>`;
+    nh+=`<div class="note warn"><div class="nt"><span class="nb warn">Check</span> ${(RESULTS._unmatched||[]).length} document(s) not matched to the tally</div><div class="nx">These files did not carry an SA# or PO# the tool could line up with the tally — often a shipment added during the day, or a file the vendor named without the SA#. Check them: if one belongs to a shipment, add that SA# to the tally and re-run, otherwise file it manually.</div><div class="nd">${rows}</div></div>`;
   }
   nEl.innerHTML=nh;
 
@@ -565,6 +579,10 @@ function buildTeams(ok,vf,ms){
   return m;
 }
 
+function fmtDate(ms){ if(!ms) return ''; try{ return new Date(ms).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch(e){ return ''; } }
+function srcTextLabel(s){ s=s||{}; const subj=s.subject||s.file||'this batch'; const t=fmtDate(s.dateMs); return subj+(t?' ('+t+')':''); }
+function srcLabel(s){ return srcTextLabel(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+function srcBody(s){ s=s||{}; if(!s.body) return ''; return '<div class="nbody">&ldquo;'+s.body.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'&rdquo;</div>'; }
 function buildVendorEmail(){
   const pr=RESULTS._prep||{dupes:[],revisions:[]};
   const miss=RESULTS.filter(r=>r.status==='MISSING PAPERWORK');
@@ -572,8 +590,8 @@ function buildVendorEmail(){
   if(!pr.dupes.length && !pr.revisions.length && !un.length && !miss.length)
     return "This batch came through clean — no duplicates, revisions, missing paperwork, or unlabelled files. No feedback needed. 👍";
   let b='Subject: A few tweaks to speed up the Deere customs paperwork\n\nHi Lorna,\n\nThanks for getting the Deere paperwork over — we\'re consolidating it into customs packets on our end, and I wanted to share a few small things that would make the hand-off faster and cut down on delays at the border. Nothing urgent, just process improvements that help us both.\n\n';
-  if(pr.dupes.length){ b+='• A few documents came through more than once — we only need each one unless it\'s revised:\n'; pr.dupes.forEach(d=>{b+='    - '+d.name+'  (re-sent in "'+d.from+'")\n';}); b+='\n'; }
-  if(pr.revisions.length){ b+='• Thanks for labelling the revised files clearly — that really helps. Where possible, please send just the revised document (not the whole batch again) and note the SA# it replaces:\n'; pr.revisions.forEach(r=>{b+='    - '+r.keep+'  replaced  '+r.drop+'\n';}); b+='\n'; }
+  if(pr.dupes.length){ b+='• A few documents came through more than once — we only need each one unless it\'s revised:\n'; pr.dupes.forEach(d=>{b+='    - '+d.name+'  (re-sent in "'+srcTextLabel(d.from)+'")\n';}); b+='\n'; }
+  if(pr.revisions.length){ b+='• Thanks for labelling the revised files clearly — that really helps. Where possible, please send just the revised document (not the whole batch again) and note the SA# it replaces:\n'; pr.revisions.forEach(r=>{b+='    - '+r.keep+' (from "'+srcTextLabel(r.keepSrc)+'") replaced '+r.drop+'\n';}); b+='\n'; }
   if(un.length){ b+='• These files didn\'t carry an SA# we could match automatically — putting the SA# in the filename would let us clear them instantly:\n'; un.forEach(u=>{b+='    - '+u+'\n';}); b+='\n'; }
   if(miss.length){ b+='• Still waiting on paperwork for: '+miss.map(r=>r.row.sa+' ('+(r.row.customer||'')+')').join(', ')+'\n\n'; }
   b+='The single biggest help would be putting the SA# in every filename (e.g. "SA22824961 - BOL.pdf"). When the SA# is on the file we match and clear it in seconds. Sending the full set in one email — with a single follow-up for any additions or revisions — and including the tally when shipments are added, would also make a real difference.\n\nReally appreciate you working with us on this — it speeds up clearance and means fewer holds on the Deere freight. Happy to hop on a quick call if that\'s easier.\n\nThanks,\nDavid';
