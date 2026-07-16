@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Deere Customs Consolidator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Client-side libraries (nothing is uploaded; all processing happens in your browser) -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+  :root{
+    --ink:#12211B; --body:#40514A; --muted:#8A948D;
+    --line:#E4E9E5; --bg:#F5F7F5; --card:#FFFFFF;
+    --green:#2E7D46; --green-d:#1F5E33; --green-l:#EAF3EC;
+    --gold:#E8B23A;
+    --ok:#1E9E5A; --ok-bg:#E7F6EE;
+    --verify:#C98A00; --verify-bg:#FBF1DA;
+    --miss:#D24545; --miss-bg:#FBE9E9;
+    --shadow:0 1px 2px rgba(18,33,27,.04),0 8px 24px rgba(18,33,27,.06);
+    --shadow-lg:0 12px 40px rgba(18,33,27,.14);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.5}
+  a{color:var(--green)}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+
+  /* Header */
+  header.hero{background:linear-gradient(135deg,#0C3A28 0%,#175033 55%,#1F6B41 100%);color:#fff;position:relative;overflow:hidden}
+  header.hero::after{content:"";position:absolute;inset:0;background:radial-gradient(1200px 300px at 80% -40%,rgba(232,178,58,.25),transparent 60%);pointer-events:none}
+  .hero-inner{display:flex;align-items:center;gap:16px;padding:26px 0 30px}
+  .mark{width:46px;height:46px;flex:0 0 auto;border-radius:12px;background:rgba(255,255,255,.12);display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+  .mark svg{width:26px;height:26px}
+  .hero h1{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:0}
+  .hero p{margin:3px 0 0;color:#CFE6D5;font-size:13.5px;font-weight:500}
+  .badge-secure{margin-left:auto;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;color:#EAF5EE}
+  .badge-secure svg{width:14px;height:14px}
+
+  main{padding:28px 0 64px}
+
+  /* Dropzone */
+  .drop{background:var(--card);border:2px dashed #C9D6CD;border-radius:18px;padding:44px 28px;text-align:center;transition:.18s;cursor:pointer;box-shadow:var(--shadow)}
+  .drop:hover{border-color:var(--green);background:#FCFDFC}
+  .drop.drag{border-color:var(--green);background:var(--green-l);transform:translateY(-1px)}
+  .drop .ico{width:58px;height:58px;margin:0 auto 14px;border-radius:16px;background:var(--green-l);display:grid;place-items:center}
+  .drop .ico svg{width:30px;height:30px;color:var(--green)}
+  .drop h2{margin:0 0 6px;font-size:18px;font-weight:700;letter-spacing:-.01em}
+  .drop p{margin:0;color:var(--muted);font-size:13.5px}
+  .drop .hint{margin-top:14px;font-size:12px;color:var(--muted)}
+  .drop b{color:var(--green-d)}
+
+  /* file chips */
+  .files{margin:18px 0 0;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:7px 10px 7px 8px;font-size:12.5px;font-weight:500;box-shadow:var(--shadow)}
+  .chip .dot{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:10px;font-weight:800;color:#fff;background:var(--miss)}
+  .chip .dot.pdf{background:#C0392B}
+  .chip .dot.xls{background:#1E7A46}
+  .chip .rm{cursor:pointer;color:var(--muted);font-weight:700;padding:0 3px}
+  .chip .rm:hover{color:var(--miss)}
+
+  .actionbar{display:flex;align-items:center;gap:12px;margin-top:20px;flex-wrap:wrap}
+  .btn{border:0;border-radius:11px;padding:12px 20px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:9px;transition:.15s}
+  .btn svg{width:16px;height:16px}
+  .btn-primary{background:var(--green);color:#fff;box-shadow:0 6px 16px rgba(46,125,70,.28)}
+  .btn-primary:hover{background:var(--green-d)}
+  .btn-primary:disabled{background:#B9C7BE;box-shadow:none;cursor:not-allowed}
+  .btn-ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:var(--shadow)}
+  .btn-ghost:hover{border-color:#C4D1C9;background:#FBFCFB}
+  .btn-sm{padding:8px 13px;font-size:12.5px;border-radius:9px}
+
+  /* progress */
+  .progress{margin-top:22px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;box-shadow:var(--shadow);display:none}
+  .progress.show{display:block}
+  .progress .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+  .progress .row b{font-size:15px;font-weight:700}
+  .progress .row span{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar{height:9px;background:#EAEFEB;border-radius:999px;overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--green),#3FA35C);border-radius:999px;transition:width .3s}
+  .plog{margin-top:12px;font-size:12px;color:var(--muted);min-height:16px}
+
+  /* results */
+  .results{display:none;margin-top:26px}
+  .results.show{display:block}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .stat .n{font-size:28px;font-weight:800;letter-spacing:-.03em;line-height:1}
+  .stat .l{font-size:12px;font-weight:600;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.04em}
+  .stat .strip{position:absolute;left:0;top:0;bottom:0;width:4px}
+  .stat.total .strip{background:var(--green)} .stat.ok .strip{background:var(--ok)}
+  .stat.verify .strip{background:var(--verify)} .stat.miss .strip{background:var(--miss)}
+  .stat.total .n{color:var(--green-d)} .stat.ok .n{color:var(--ok)} .stat.verify .n{color:var(--verify)} .stat.miss .n{color:var(--miss)}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+
+  .section-t{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:26px 4px 12px}
+  #notes{margin-bottom:16px;display:flex;flex-direction:column;gap:8px}
+  .note{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--green);border-radius:10px;padding:11px 14px;font-size:12.5px;color:var(--body);box-shadow:var(--shadow)}
+  .note.warn{border-left-color:var(--verify);background:#FEFBF3}
+  .note .nb{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:6px;margin-right:8px;background:#EEF1EE;color:var(--muted)}
+  .note .nb.ok{background:var(--ok-bg);color:var(--ok)} .note .nb.warn{background:var(--verify-bg);color:var(--verify)}
+
+  .ship{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:12px;display:flex;align-items:center;gap:16px;transition:.15s}
+  .ship:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
+  .ship .pill{flex:0 0 auto;font-size:11px;font-weight:800;letter-spacing:.03em;padding:5px 10px;border-radius:999px;text-transform:uppercase}
+  .pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.verify{background:var(--verify-bg);color:var(--verify)} .pill.miss{background:var(--miss-bg);color:var(--miss)}
+  .ship .body{flex:1;min-width:0}
+  .ship .sa{font-size:15px;font-weight:700;letter-spacing:-.01em}
+  .ship .sa small{color:var(--muted);font-weight:600;margin-left:8px}
+  .ship .meta{font-size:12.5px;color:var(--body);margin-top:3px}
+  .ship .docs{font-size:11.5px;color:var(--muted);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ship .reason{font-size:12px;color:var(--verify);margin-top:5px;font-weight:600}
+  .ship .reason.m{color:var(--miss)}
+  .ship .dl{flex:0 0 auto}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);margin-top:14px;overflow:hidden}
+  .panel .ph{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);cursor:pointer}
+  .panel .ph b{font-size:14px;font-weight:700}
+  .panel .ph .chev{color:var(--muted);transition:.2s}
+  .panel.open .ph .chev{transform:rotate(90deg)}
+  .panel .pc{display:none;padding:0}
+  .panel.open .pc{display:block}
+  .panel textarea{width:100%;border:0;padding:16px 18px;font-family:'SFMono-Regular',ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.6;color:var(--body);resize:vertical;min-height:180px;background:#FBFCFB}
+  .panel textarea:focus{outline:none}
+  .panel .pf{display:flex;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--line);background:#FBFCFB}
+
+  .err{background:var(--miss-bg);border:1px solid #F1C6C6;color:#9B2C2C;border-radius:12px;padding:14px 16px;margin-top:16px;font-size:13.5px;font-weight:500;display:none}
+  .err.show{display:block}
+
+  footer{border-top:1px solid var(--line);padding:22px 0 40px;color:var(--muted);font-size:12px;text-align:center}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;box-shadow:var(--shadow-lg);z-index:50}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.ship{flex-wrap:wrap}.ship .dl{width:100%}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap hero-inner">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#EAF5EE" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 3h7l4 4v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/><path d="M9 13l2 2 4-4"/>
+      </svg>
+    </div>
+    <div>
+      <h1>Deere Customs Consolidator</h1>
+      <p>Drop a GLS batch — get one merged packet per shipment, plus what's missing.</p>
+    </div>
+    <div class="badge-secure" title="All processing happens in your browser. No files are uploaded anywhere.">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Runs in your browser
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="drop" class="drop">
+    <input id="file" type="file" multiple accept=".pdf,.xlsx,.xls,.csv,.msg" hidden />
+    <div class="ico">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+    </div>
+    <h2>Drop the saved email — or the tally + attachments</h2>
+    <p>Save the GLS email as a <b>.msg</b> and drop it here (it unpacks itself), or drop the PDFs <b>and</b> the tally spreadsheet directly.</p>
+    <div class="hint">The <b>tally (.xlsx)</b> is required — it maps each document to its SA#.</div>
+  </div>
+
+  <div id="files" class="files"></div>
+  <div id="err" class="err"></div>
+
+  <div class="actionbar" id="actionbar" style="display:none">
+    <button id="run" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9V3z"/></svg>
+      Consolidate batch
+    </button>
+    <button id="clear" class="btn btn-ghost btn-sm">Clear</button>
+  </div>
+
+  <div id="progress" class="progress">
+    <div class="row"><b id="pstage">Working…</b><span id="pcount"></span></div>
+    <div class="bar"><i id="pbar"></i></div>
+    <div class="plog" id="plog"></div>
+  </div>
+
+  <section id="results" class="results">
+    <div class="stats">
+      <div class="stat total"><div class="strip"></div><div class="n" id="s-total">0</div><div class="l">Shipments</div></div>
+      <div class="stat ok"><div class="strip"></div><div class="n" id="s-ok">0</div><div class="l">Ready (OK)</div></div>
+      <div class="stat verify"><div class="strip"></div><div class="n" id="s-verify">0</div><div class="l">Verify</div></div>
+      <div class="stat miss"><div class="strip"></div><div class="n" id="s-miss">0</div><div class="l">Missing</div></div>
+    </div>
+
+    <div class="toolbar">
+      <button id="dl-all" class="btn btn-primary btn-sm">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+        Download all packets (ZIP)
+      </button>
+      <button id="dl-csv" class="btn btn-ghost btn-sm">Download results (CSV)</button>
+    </div>
+
+    <div id="notes"></div>
+    <div id="shiplist"></div>
+
+    <div class="panel" id="panel-email">
+      <div class="ph"><b>✉️ &nbsp;Missing-paperwork email to the vendor</b><span class="chev">▶</span></div>
+      <div class="pc"><textarea id="email-txt" spellcheck="false"></textarea><div class="pf"><button class="btn btn-ghost btn-sm" data-copy="email-txt">Copy email</button></div></div>
+    </div>
+    <div class="panel" id="panel-teams">
+      <div class="ph"><b>💬 &nbsp;Teams message for “Vendor Paperwork”</b><span class="chev">▶</span></div>
+      <div class="pc"><textarea id="teams-txt" spellcheck="false"></textarea><div class="pf"><button class="btn btn-ghost btn-sm" data-copy="teams-txt">Copy message</button></div></div>
+    </div>
+    <div class="panel" id="panel-vendor">
+      <div class="ph"><b>📋 &nbsp;Vendor feedback / best-practices email</b><span class="chev">▶</span></div>
+      <div class="pc"><textarea id="vendor-txt" spellcheck="false"></textarea><div class="pf"><button class="btn btn-ghost btn-sm" data-copy="vendor-txt">Copy email</button></div></div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  Everything runs locally in your browser — no document ever leaves this computer. &nbsp;·&nbsp; Deere Customs Consolidator
+</footer>
+<div id="toast" class="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+// ---------- config (mirrors the proven engine) ----------
+const CFG = {
+  idx:{date:0, sa:3, po:4, customer:5, pieces:7, weight:8, trailer:-1},
+  ocrMatchMaxPages:3, ocrScale:2.0, textThreshold:40, ocrMinConf:55,
+  customerStop:new Set(['LTD','INC','CORP','CORPORATION','CO','COMPANY','LLC','LP','LIMITED','CANADA','CANADIAN','NORTH','AMERICA','AMERICAN','THE','AND','GROUP','MANUFACTURING','MACHINE','MACHINING','SOLUTION','SOLUTIONS','STEEL','FOAM','TECHNOLOGY','TECHNOLOGIES','ENTERPRISES','INTEGRATED','INTL','INTERNATIONAL','INDUSTRIES','INDUSTRIAL','SERVICES'])
+};
+
+// ---------- helpers ----------
+const $=id=>document.getElementById(id);
+const norm=s=>(s||'').toString().replace(/\s+/g,' ').trim().toUpperCase();
+const digits=s=>(s||'').toString().replace(/\D/g,'');
+const numOf=s=>{const m=(''+ (s??'')).match(/[-+]?\d[\d,]*\.?\d*/);return m?parseFloat(m[0].replace(/,/g,'')):null;};
+function splitPOs(raw){const s=norm(raw);if(!s)return [];if((s.match(/JDGV/g)||[]).length>1){return s.split('JDGV').filter(Boolean).map(p=>'JDGV'+p.trim()).filter(p=>p.length>4);}return s.split(/[\s,;/]+/).filter(Boolean);}
+function coreTokens(name){return (norm(name).match(/[A-Z]{3,}/g)||[]).filter(t=>!CFG.customerStop.has(t)&&t.length>=5);}
+function saVariants(sa){const n=norm(sa);const out=new Set([n,n.replace(/\s/g,''),digits(n)]);return [...out].filter(v=>v&&v.length>=4);}
+function safe(x){return (x||'').toString().replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'NA';}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800);}
+
+// ---------- state ----------
+let PDFS=[], TALLY=null, WORKER=null;
+
+// ---------- file intake ----------
+const drop=$('drop'), fileInput=$('file');
+drop.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',e=>addFiles(e.target.files));
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag');}));
+drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+
+async function addFiles(list){
+  for(const f of list){
+    const ext=f.name.split('.').pop().toLowerCase();
+    if(ext==='msg'){ await ingestMsg(f); }
+    else if(ext==='pdf'){ f._src='dropped directly'; if(!PDFS.some(p=>p.name===f.name&&p.size===f.size)) PDFS.push(f); }
+    else if(['xlsx','xls','csv'].includes(ext)){ TALLY=f; }
+  }
+  renderFiles();
+}
+async function ingestMsg(file){
+  try{
+    const ab=await file.arrayBuffer();
+    const atts=extractMsgAttachments(ab);
+    let npdf=0;
+    for(const a of atts){
+      const ex=a.name.split('.').pop().toLowerCase();
+      const blob=new File([a.bytes], a.name); blob._src=file.name;
+      if(ex==='pdf'){ if(!PDFS.some(p=>p.name===a.name)){ PDFS.push(blob); npdf++; } }
+      else if(['xlsx','xls','csv'].includes(ex)){ TALLY=blob; }
+    }
+    toast('Opened “'+file.name+'” — '+npdf+' PDFs'+(TALLY?' + tally':''));
+  }catch(e){ showErr('Could not read that .msg email: '+e.message); }
+}
+
+// ---- OLE2 (.msg) attachment extractor (mirrors the proven engine) ----
+function extractMsgAttachments(ab){
+  const ENDOFCHAIN=0xFFFFFFFE, FREESECT=0xFFFFFFFF;
+  const dv=new DataView(ab); const u8=new Uint8Array(ab);
+  const sig=[0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
+  for(let i=0;i<8;i++){ if(u8[i]!==sig[i]) throw new Error('This file is not a valid Outlook .msg'); }
+  const u16=o=>dv.getUint16(o,true), u32=o=>dv.getUint32(o,true);
+  const sectorSize=1<<u16(30), miniSectorSize=1<<u16(32);
+  const numDifat=u32(72), firstDifat=u32(68);
+  const firstDir=u32(48), miniCutoff=u32(56), firstMiniFat=u32(60);
+  const secOff=sid=>(sid+1)*sectorSize;
+  const readSector=sid=>u8.subarray(secOff(sid),secOff(sid)+sectorSize);
+  const secU32=(sid,i)=>u32(secOff(sid)+i*4);
+  let difat=[]; for(let i=0;i<109;i++)difat.push(u32(76+i*4));
+  let sid=firstDifat; const perSec=sectorSize/4;
+  for(let n=0;n<numDifat && sid!==ENDOFCHAIN && sid!==FREESECT;n++){ for(let i=0;i<perSec-1;i++)difat.push(secU32(sid,i)); sid=secU32(sid,perSec-1); }
+  difat=difat.filter(s=>s!==ENDOFCHAIN && s!==FREESECT);
+  const fat=[]; for(const fs of difat){ for(let i=0;i<perSec;i++)fat.push(secU32(fs,i)); }
+  const chain=start=>{const out=[];let s=start;while(s!==ENDOFCHAIN&&s!==FREESECT&&s<fat.length){out.push(s);s=fat[s];}return out;};
+  const streamBytes=(start,size)=>{const parts=chain(start).map(readSector);const total=new Uint8Array(parts.reduce((a,p)=>a+p.length,0));let o=0;for(const p of parts){total.set(p,o);o+=p.length;}return total.subarray(0,size);};
+  const minifat=[]; for(const s of chain(firstMiniFat)){for(let i=0;i<perSec;i++)minifat.push(secU32(s,i));}
+  const dirChain=chain(firstDir); const dirBytes=streamBytes(firstDir, dirChain.length*sectorSize);
+  const ddv=new DataView(dirBytes.buffer, dirBytes.byteOffset, dirBytes.byteLength);
+  const entries=[];
+  for(let o=0;o+128<=dirBytes.length;o+=128){
+    const nameLen=ddv.getUint16(o+64,true); let name='';
+    for(let i=0;i<Math.max(nameLen-2,0);i+=2){const c=ddv.getUint16(o+i,true);if(c)name+=String.fromCharCode(c);}
+    entries.push({name,type:dirBytes[o+66],start:ddv.getUint32(o+116,true),size:ddv.getUint32(o+120,true)});
+  }
+  const root=entries.find(e=>e.type===5); const miniStream=streamBytes(root.start,root.size);
+  const miniBytes=(start,size)=>{const parts=[];let s=start;while(s!==ENDOFCHAIN&&s!==FREESECT&&s<minifat.length){parts.push(miniStream.subarray(s*miniSectorSize,s*miniSectorSize+miniSectorSize));s=minifat[s];}const total=new Uint8Array(parts.reduce((a,p)=>a+p.length,0));let o=0;for(const p of parts){total.set(p,o);o+=p.length;}return total.subarray(0,size);};
+  const getStream=e=>(e.size<miniCutoff&&e.type===2)?miniBytes(e.start,e.size):streamBytes(e.start,e.size);
+  const utf16=bytes=>{let s='';const d=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);for(let i=0;i+1<bytes.length;i+=2){const c=d.getUint16(i,true);if(c)s+=String.fromCharCode(c);}return s;};
+  const order=[], att={}; let cur=null;
+  for(const e of entries){ const n=e.name;
+    if(n.startsWith('__attach_version1.0_')){cur=n;att[cur]={data:null,name:null};order.push(cur);}
+    else if(e.type===2 && n.indexOf('3701')>=0 && n.endsWith('0102') && cur){att[cur].data=getStream(e);}
+    else if(e.type===2 && (n.endsWith('3707001F')||n.endsWith('3704001F')) && cur){ const nm=utf16(getStream(e)); if(att[cur].name===null || n.indexOf('3707')>=0) att[cur].name=nm; }
+  }
+  const out=[]; let idx=0;
+  for(const key of order){ const a=att[key]; const data=a.data||new Uint8Array(0);
+    let name=(a.name||('attachment_'+idx+'.bin')).replace(/\\/g,'/').split('/').pop().trim()||('attachment_'+idx+'.bin'); idx++;
+    if(data.length<2000 && /\.(png|gif|jpe?g|bmp)$/i.test(name)) continue;
+    out.push({name,bytes:data});
+  }
+  return out;
+}
+function renderFiles(){
+  const box=$('files'); box.innerHTML='';
+  if(TALLY){ box.appendChild(chip(TALLY.name,'xls','TALLY',()=>{TALLY=null;renderFiles();})); }
+  PDFS.forEach((p,i)=>box.appendChild(chip(p.name,'pdf','PDF',()=>{PDFS.splice(i,1);renderFiles();})));
+  $('actionbar').style.display=(PDFS.length||TALLY)?'flex':'none';
+  $('run').disabled=!(PDFS.length&&TALLY);
+}
+function chip(name,cls,label,onRm){
+  const el=document.createElement('div');el.className='chip';
+  el.innerHTML=`<span class="dot ${cls}">${label==='TALLY'?'XLS':'PDF'}</span><span>${name}</span><span class="rm">✕</span>`;
+  el.querySelector('.rm').onclick=onRm;return el;
+}
+$('clear').onclick=()=>{PDFS=[];TALLY=null;renderFiles();$('results').classList.remove('show');$('err').classList.remove('show');};
+
+function showErr(m){const e=$('err');e.textContent=m;e.classList.add('show');}
+function hideErr(){$('err').classList.remove('show');}
+
+// ---------- progress ----------
+function prog(stage,done,total,log){
+  $('progress').classList.add('show');
+  $('pstage').textContent=stage;
+  if(total){$('pcount').textContent=done+' / '+total;$('pbar').style.width=Math.round(done/total*100)+'%';}
+  if(log!==undefined)$('plog').textContent=log;
+}
+
+// ---------- tally parsing ----------
+async function parseTally(file){
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+  const i=CFG.idx, out=[];
+  for(const r of rows){
+    if(!r||r.every(v=>v==null))continue;
+    const sa=norm(r[i.sa]);
+    if(!sa||!sa.startsWith('SA'))continue;
+    const poRaw=(r[i.po]??'').toString();
+    out.push({sa,poRaw,poList:splitPOs(poRaw),customer:norm(r[i.customer]),
+      date:(r[i.date]??'').toString(),pieces:numOf(r[i.pieces]),weight:numOf(r[i.weight]),
+      trailer:i.trailer>=0?norm(r[i.trailer]):''});
+  }
+  return out;
+}
+
+// ---------- read one PDF: text + form fields, OCR if needed ----------
+async function readPdfText(file){
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  let text='', conf=100, ocr=false, backend='text-layer';
+  const pdf=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise;
+  const nPages=pdf.numPages;
+  const upto=Math.min(nPages, CFG.ocrMatchMaxPages);
+  for(let p=1;p<=upto;p++){
+    const page=await pdf.getPage(p);
+    const tc=await page.getTextContent();
+    text+=' '+tc.items.map(it=>it.str).join(' ');
+    try{const an=await page.getAnnotations();for(const a of an){if(a.fieldValue)text+=' '+a.fieldValue;}}catch(e){}
+  }
+  if(text.replace(/\s/g,'').length<CFG.textThreshold){
+    // OCR the leading pages
+    backend='ocr'; ocr=true; let confs=[];
+    if(!WORKER)WORKER=await Tesseract.createWorker('eng');
+    for(let p=1;p<=upto;p++){
+      const page=await pdf.getPage(p);
+      const vp=page.getViewport({scale:CFG.ocrScale});
+      const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
+      await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+      const {data}=await WORKER.recognize(cv);
+      text+=' '+data.text; if(typeof data.confidence==='number')confs.push(data.confidence);
+    }
+    conf=confs.length?confs.reduce((a,b)=>a+b,0)/confs.length:0;
+  }
+  return {bytes, text:norm(text), textDigits:digits(text), conf, ocr, backend, name:file.name};
+}
+
+// ---------- match a doc to a manifest row ----------
+function matchDoc(doc, manifest){
+  const up=doc.text, ud=doc.textDigits;
+  for(const row of manifest){ for(const v of saVariants(row.sa)){ if(up.includes(v)||(digits(v).length>=5&&ud.includes(digits(v)))) return {row,tier:'SA#'}; } }
+  for(const row of manifest){ for(const po of (row.poList.length?row.poList:[row.poRaw].filter(Boolean))){ const pd=digits(po); if((po&&up.includes(norm(po)))||(pd.length>=5&&ud.includes(pd))) return {row,tier:'PO#'}; } }
+  for(const row of manifest){ if(row.customer&&up.includes(row.customer)) return {row,tier:'Customer'}; }
+  const tokMap={};
+  manifest.forEach(row=>coreTokens(row.customer).forEach(t=>{(tokMap[t]=tokMap[t]||new Set()).add(row.sa);}));
+  for(const row of manifest){ for(const t of coreTokens(row.customer)){ if(tokMap[t].size===1&&new RegExp('\\b'+t+'\\b').test(up)) return {row,tier:'Customer'}; } }
+  return {row:null,tier:''};
+}
+
+// ---------- merge PDFs for one SA# ----------
+async function mergePdfs(docs){
+  const out=await PDFLib.PDFDocument.create();
+  for(const d of docs){
+    try{ const src=await PDFLib.PDFDocument.load(d.bytes,{ignoreEncryption:true});
+      const pages=await out.copyPages(src,src.getPageIndices()); pages.forEach(p=>out.addPage(p)); }catch(e){}
+  }
+  return await out.save();
+}
+
+// ---------- dedupe + revision handling (matches how emails really arrive) ----------
+async function sha(file){const b=await file.arrayBuffer();const h=await crypto.subtle.digest('SHA-256',b);return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('');}
+function idTokens(n){return new Set((n.toUpperCase().match(/SA\d{6,}|JD\d{3,}/g))||[]);}
+async function preparePdfs(files){
+  const info={dupes:[],revisions:[]};
+  const byHash=new Map();
+  for(const f of files){ const h=await sha(f); if(byHash.has(h)) info.dupes.push({name:f.name,from:f._src||'?',dupOf:byHash.get(h)._src||'?'}); else byHash.set(h,f); }
+  let uniq=[...byHash.values()];
+  const revised=uniq.filter(f=>/revis/i.test(f.name)); const drop=new Set();
+  for(const r of revised){ const rt=idTokens(r.name);
+    for(const f of uniq){ if(f===r||/revis/i.test(f.name))continue;
+      if([...idTokens(f.name)].some(t=>rt.has(t))){ drop.add(f); info.revisions.push({keep:r.name,drop:f.name}); } } }
+  return {kept:uniq.filter(f=>!drop.has(f)), info};
+}
+
+// ---------- main pipeline ----------
+let RESULTS=[];
+$('run').onclick=async ()=>{
+  hideErr();
+  if(!TALLY){showErr('Add the tally spreadsheet — it maps documents to shipments.');return;}
+  if(!PDFS.length){showErr('Add the PDF attachments.');return;}
+  $('run').disabled=true; $('results').classList.remove('show'); RESULTS=[];
+  try{
+    prog('Reading the tally…',0,1);
+    const manifest=await parseTally(TALLY);
+    if(!manifest.length){showErr('No shipments found in the tally. Check the spreadsheet.');$('run').disabled=false;return;}
+
+    prog('Removing duplicates & applying revisions…',0,1);
+    const {kept:KEPT, info:PREP}=await preparePdfs(PDFS);
+
+    const bindings=new Map(); // sa -> [{doc,tier}]
+    const unmatched=[];
+    for(let i=0;i<KEPT.length;i++){
+      prog('Reading & matching documents…',i,KEPT.length,KEPT[i].name);
+      const doc=await readPdfText(KEPT[i]);
+      const {row,tier}=matchDoc(doc,manifest);
+      if(!row){unmatched.push(doc.name);continue;}
+      if(!bindings.has(row.sa))bindings.set(row.sa,[]);
+      bindings.get(row.sa).push({doc,tier});
+    }
+    prog('Merging packets…',PDFS.length,PDFS.length,'');
+
+    for(const row of manifest){
+      const docs=bindings.get(row.sa)||[];
+      let status='OK', reasons=[];
+      if(!docs.length){status='MISSING PAPERWORK';reasons.push('No document matched this SA#');}
+      else{
+        if(docs.every(d=>d.tier==='Customer')){status='VERIFY';reasons.push('Matched on customer name only');}
+        if(docs.some(d=>d.doc.ocr&&d.doc.conf<CFG.ocrMinConf)){status='VERIFY';reasons.push('Low OCR confidence on a scan');}
+      }
+      let blob=null,fname=null;
+      if(docs.length){
+        const bytes=await mergePdfs(docs.map(d=>d.doc));
+        blob=new Blob([bytes],{type:'application/pdf'});
+        fname=`${safe(row.sa)}_${safe(row.customer)}_CONSOLIDATED.pdf`;
+      }
+      RESULTS.push({row,status,reasons,docs,blob,fname});
+    }
+    RESULTS._unmatched=unmatched;
+    RESULTS._prep=PREP;
+    render();
+  }catch(e){ showErr('Something went wrong: '+e.message); console.error(e); }
+  $('run').disabled=false;
+};
+
+// ---------- render results ----------
+function render(){
+  $('progress').classList.remove('show');
+  const ok=RESULTS.filter(r=>r.status==='OK').length;
+  const vf=RESULTS.filter(r=>r.status==='VERIFY').length;
+  const ms=RESULTS.filter(r=>r.status==='MISSING PAPERWORK').length;
+  $('s-total').textContent=RESULTS.length;$('s-ok').textContent=ok;$('s-verify').textContent=vf;$('s-miss').textContent=ms;
+
+  const list=$('shiplist');list.innerHTML='';
+  const order={'MISSING PAPERWORK':0,'VERIFY':1,'OK':2};
+  [...RESULTS].sort((a,b)=>order[a.status]-order[b.status]).forEach(r=>{
+    const pillCls=r.status==='OK'?'ok':r.status==='VERIFY'?'verify':'miss';
+    const el=document.createElement('div');el.className='ship';
+    const pos=(r.row.poList.length?r.row.poList:[r.row.poRaw]).filter(Boolean).join(', ');
+    el.innerHTML=`
+      <span class="pill ${pillCls}">${r.status==='MISSING PAPERWORK'?'Missing':r.status}</span>
+      <div class="body">
+        <div class="sa">${r.row.customer||'—'} <small>${r.row.sa}</small></div>
+        <div class="meta">${pos||'—'} &nbsp;·&nbsp; ${r.row.pieces??'?'} pcs &nbsp;·&nbsp; ${r.row.weight??'?'} wt</div>
+        ${r.docs.length?`<div class="docs">${r.docs.length} doc(s): ${r.docs.map(d=>d.doc.name).join(', ')}</div>`:''}
+        ${r.reasons.length?`<div class="reason ${r.status==='MISSING PAPERWORK'?'m':''}">${r.reasons.join('; ')}</div>`:''}
+      </div>
+      <div class="dl"></div>`;
+    if(r.blob){
+      const b=document.createElement('button');b.className='btn btn-ghost btn-sm';
+      b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg> Packet';
+      b.onclick=()=>saveBlob(r.blob,r.fname);
+      el.querySelector('.dl').appendChild(b);
+    }
+    list.appendChild(el);
+  });
+
+  const nEl=$('notes'); let nh=''; const pr=RESULTS._prep||{dupes:[],revisions:[]};
+  if(pr.revisions.length) nh+=`<div class="note"><span class="nb ok">Revised</span> ${pr.revisions.length} revision(s) applied — newer replaced original: ${pr.revisions.map(r=>`<b>${r.keep}</b> ▸ ${r.drop}`).join(' &nbsp;·&nbsp; ')}</div>`;
+  if(pr.dupes.length) nh+=`<div class="note"><span class="nb">Dupes</span> ${pr.dupes.length} duplicate re-send(s) skipped: ${pr.dupes.map(d=>d.name+' (re-sent in “'+d.from+'”)').join(', ')}</div>`;
+  if((RESULTS._unmatched||[]).length) nh+=`<div class="note warn"><span class="nb warn">Check</span> ${RESULTS._unmatched.length} document(s) didn't match the tally — possible new shipment, add to tally or verify: ${RESULTS._unmatched.join(', ')}</div>`;
+  nEl.innerHTML=nh;
+
+  $('email-txt').value=buildEmail();
+  $('teams-txt').value=buildTeams(ok,vf,ms);
+  $('vendor-txt').value=buildVendorEmail();
+  $('results').classList.add('show');
+  $('results').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function buildEmail(){
+  const miss=RESULTS.filter(r=>r.status==='MISSING PAPERWORK');
+  if(!miss.length) return "All shipments on the tally were matched to paperwork — nothing missing. 🎉\n\nNo vendor email needed.";
+  let b='Subject: Missing paperwork — GLS batch\n\nHi Lorna,\n\nThanks for the paperwork. I matched documents to every shipment on the tally except the following — the BOL / commercial invoice didn\'t come through:\n\n';
+  miss.forEach(r=>{ const pos=(r.row.poList.length?r.row.poList:[r.row.poRaw]).filter(Boolean).join(', ');
+    b+=`  • SA#: ${r.row.sa}\n    PO#: ${pos||'—'}\n    Customer: ${r.row.customer||'—'}\n    Pieces / Weight: ${r.row.pieces??'?'} / ${r.row.weight??'?'}\n\n`; });
+  b+='Could you send those when you get a chance? Once I have them I\'ll finish the customs submission. Everything else came through fine.\n\nThanks,\nDavid';
+  return b;
+}
+function buildTeams(ok,vf,ms){
+  const miss=RESULTS.filter(r=>r.status==='MISSING PAPERWORK').map(r=>r.row.sa+' ('+(r.row.customer||'')+')');
+  const vfy=RESULTS.filter(r=>r.status==='VERIFY').map(r=>r.row.sa+' ('+(r.row.customer||'')+')');
+  let m=`**GLS customs batch processed** — ${RESULTS.length} shipments: ${ok} ready · ${vf} to verify · ${ms} missing.\n`;
+  m+=`Consolidated packets are attached / in the Deere Customs Consolidated library.\n`;
+  if(vfy.length)m+=`\n⚠️ Verify: ${vfy.join(', ')}`;
+  if(miss.length)m+=`\n❗ Missing paperwork (chasing vendor): ${miss.join(', ')}`;
+  return m;
+}
+
+function buildVendorEmail(){
+  const pr=RESULTS._prep||{dupes:[],revisions:[]};
+  const miss=RESULTS.filter(r=>r.status==='MISSING PAPERWORK');
+  const un=RESULTS._unmatched||[];
+  if(!pr.dupes.length && !pr.revisions.length && !un.length && !miss.length)
+    return "This batch came through clean — no duplicates, revisions, missing paperwork, or unlabelled files. No feedback needed. 👍";
+  let b='Subject: A few tweaks to speed up the Deere customs paperwork\n\nHi Lorna,\n\nThanks for getting the Deere paperwork over — we\'re consolidating it into customs packets on our end, and I wanted to share a few small things that would make the hand-off faster and cut down on delays at the border. Nothing urgent, just process improvements that help us both.\n\n';
+  if(pr.dupes.length){ b+='• A few documents came through more than once — we only need each one unless it\'s revised:\n'; pr.dupes.forEach(d=>{b+='    - '+d.name+'  (re-sent in "'+d.from+'")\n';}); b+='\n'; }
+  if(pr.revisions.length){ b+='• Thanks for labelling the revised files clearly — that really helps. Where possible, please send just the revised document (not the whole batch again) and note the SA# it replaces:\n'; pr.revisions.forEach(r=>{b+='    - '+r.keep+'  replaced  '+r.drop+'\n';}); b+='\n'; }
+  if(un.length){ b+='• These files didn\'t carry an SA# we could match automatically — putting the SA# in the filename would let us clear them instantly:\n'; un.forEach(u=>{b+='    - '+u+'\n';}); b+='\n'; }
+  if(miss.length){ b+='• Still waiting on paperwork for: '+miss.map(r=>r.row.sa+' ('+(r.row.customer||'')+')').join(', ')+'\n\n'; }
+  b+='The single biggest help would be putting the SA# in every filename (e.g. "SA22824961 - BOL.pdf"). When the SA# is on the file we match and clear it in seconds. Sending the full set in one email — with a single follow-up for any additions or revisions — and including the tally when shipments are added, would also make a real difference.\n\nReally appreciate you working with us on this — it speeds up clearance and means fewer holds on the Deere freight. Happy to hop on a quick call if that\'s easier.\n\nThanks,\nDavid';
+  return b;
+}
+
+// ---------- downloads ----------
+function saveBlob(blob,name){const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1500);}
+$('dl-all').onclick=async ()=>{
+  const zip=new JSZip();
+  RESULTS.filter(r=>r.blob).forEach(r=>zip.file(r.fname,r.blob));
+  zip.file('RESULTS.csv',csv());
+  const em=buildEmail(); if(!em.startsWith('All shipments')) zip.file('MISSING_email_to_vendor.txt',em);
+  const blob=await zip.generateAsync({type:'blob'}); saveBlob(blob,'Consolidated_Packets.zip');
+};
+$('dl-csv').onclick=()=>saveBlob(new Blob([csv()],{type:'text/csv'}),'RESULTS.csv');
+function csv(){
+  const esc=v=>'"'+((v??'').toString().replace(/"/g,'""'))+'"';
+  let out='SA #,Customer,Status,Docs,PO Numbers,Weight,Pieces,Reasons\n';
+  RESULTS.forEach(r=>{const pos=(r.row.poList.length?r.row.poList:[r.row.poRaw]).filter(Boolean).join(' ');
+    out+=[esc(r.row.sa),esc(r.row.customer),esc(r.status),r.docs.length,esc(pos),r.row.weight??'',r.row.pieces??'',esc(r.reasons.join('; '))].join(',')+'\n';});
+  return out;
+}
+
+// ---------- panels + copy ----------
+document.querySelectorAll('.panel .ph').forEach(ph=>ph.onclick=()=>ph.parentElement.classList.toggle('open'));
+document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{const t=$(b.dataset.copy);t.select();navigator.clipboard.writeText(t.value);toast('Copied to clipboard');});
+</script>
+</body>
+</html>
