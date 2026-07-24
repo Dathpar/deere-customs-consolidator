@@ -476,10 +476,13 @@ $('run').onclick=async ()=>{
     const unmatched=[];
     const loadToSa=new Map(); // filename load# -> sa, from confidently matched docs
     const pending=[];         // docs not yet matched, held for a load# pass
+    const failed=[];          // files we couldn't read (corrupt / 0-byte)
     for(let i=0;i<KEPT.length;i++){
       prog('Reading & matching documents…',i,KEPT.length,KEPT[i].name);
-      const doc=await readPdfText(KEPT[i]);
       const ln=loadNum(KEPT[i].name);
+      let doc;
+      try{ doc=await readPdfText(KEPT[i]); }
+      catch(e){ failed.push(KEPT[i].name); continue; }
       const {row,tier}=matchDoc(doc,manifest);
       if(row){
         if(!bindings.has(row.sa))bindings.set(row.sa,[]);
@@ -514,8 +517,10 @@ $('run').onclick=async ()=>{
       RESULTS.push({row,status,reasons,docs,blob,fname});
     }
     RESULTS._unmatched=unmatched;
+    RESULTS._failed=failed;
     RESULTS._prep=PREP;
     render();
+    if(failed.length){ showErr(failed.length+' file(s) could not be read and were skipped — re-download and re-add them, then run again: '+failed.join(', ')); }
   }catch(e){ showErr('Something went wrong: '+e.message); console.error(e); }
   $('run').disabled=false;
 };
